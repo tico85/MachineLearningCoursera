@@ -1,0 +1,100 @@
+---
+title: "Predicting Incorrect Barbell Movements from Wearables"
+author: "Triston Cossette"
+date: "5/25/2017"
+output: html_document
+---
+##Executive Summary
+People often times do exercises incorrectly, and it is difficult for them to spot how.  This analysis looks at answering one question:
+
+1) Can we use wearable technology to assess if an exercise has been done correctly?
+
+The approach is to manually observe a large number of exercises and tag them as being correct or incorrect (in a variety of ways).  We then will apply model-building techniques to see if we can accurately predict if an exercise has been done correctly.
+
+##Getting and Cleaning the data
+First, we'll download the data and store it an r object.  I'll load up some important packages as well, and set the seed right away.
+```{r}
+ if (!file.exists("Activity.csv"))
+    {
+      download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile="Activity.csv", cacheOK=T)
+ }
+
+act<-read.csv("Activity.csv",header=TRUE)
+
+##Get Packages
+library(caret)
+set.seed(5252017)
+
+##Check Dims/Features
+dim(act)
+```
+
+Next, we'll need to remove all columns with the following prefixes.  They appear to be summary fields only present on summary rows.  By removing these fields, we'll have a nice fully-fililed dataframe ready for modeling.
+
+```{r}
+#Clean up some weird datafields
+act<-act[,-grep("amplitude_",colnames(act))]
+act<-act[,-grep("avg_",colnames(act))]
+act<-act[,-grep("min_",colnames(act))]
+act<-act[,-grep("max_",colnames(act))]
+act<-act[,-grep("stddev_",colnames(act))]
+act<-act[,-grep("kurtosis_",colnames(act))]
+act<-act[,-grep("skewness_",colnames(act))]
+act<-act[,-grep("var_",colnames(act))]
+
+##Remove identity and time-based variables
+act<-act[,-(1:7)]
+```
+
+##Split into Training and Test Sets.
+Now, we'll split our data into appropriate datasets.  I chose to use a 25% test and 75% training...arbitrarily.  Since we have a lot of data, there's not too much point in repeated testing of models.  Theoretically we should have low variablity, and we shouldn't overfit and bias our model too much with the data that we have.  So let's just keep it simple and see how it goes.
+
+```{r}
+Intrain<-createDataPartition(as.vector(act$classe), p=0.75, list=FALSE)
+Training<-act[Intrain,]
+Testing<-act[-Intrain,]
+```
+
+##PCA Preprocessing
+This data set contains a lot of features, and honestly, my computer is having trouble running complex models on them.  Probably not idea.  So to trim the data I'm using, I'm going to do a quick PCA:
+
+```{r}
+preProcess(Training[,-53],method='pca')
+```
+
+Which appears to trim the number of variables by almost half, which is really good for compression.  Let's go ahead and use PCA, but bake it in to our models witn Train in Caret.
+
+##Fit Model 1, GBM, and Check Accuracy
+Since we are using numeric variables to predict categorical variables, we have a good sense of what kind of models to use.  I have first selected a General Boosted Model, as I suspect that we may have a lot of variables that contribute marginally to the whole prediction.  Let's see if I'm right:
+```{r cache=TRUE, results="hide"}
+Fit1<-train(classe ~ ., method="gbm",preProcess="pca",data=Training)
+```
+
+```{r}
+Pred1<-predict(Fit1, Testing)
+table(Pred1,Testing$classe) 
+summary(Fit1)
+```
+ 
+It looks like our misclassification rate here is only `r round(1-(sum(diag(table(Pred1,Testing$classe)))/nrow(Testing)),3)`
+
+It also looks like a GBM is a good model to use here because it looks like a lot of the variables add to explaining the variance.  Let's try one more model before we are sold, though.
+
+##Fit Model 2, Random Forest, and check accuracy
+A Random Forest Model is another model type that is appropriate for predicting a categorical variable from a matrix.
+```{r cache=TRUE, results="hide"}
+Fit2<-train(classe ~ ., method="rf", preProcess="pca", data=Training)
+```
+
+```{r}
+Pred2<-predict(Fit2, Testing)
+table(Pred2,Testing$classe)
+```
+
+##Final Model
+Since our RF model error rates look exceptional.  Let's go ahead and test them against our final validation set and see how we do!
+
+Our expected misclassification Rate is just over our Random Forest misclassificaiton rate, `r round(1-(sum(diag(table(Pred2,Testing$classe)))/nrow(Testing)),3)`
+
+##Conclusion
+Our conclusion is that indeed, using simple model building techniques we can predict if and how an exercise has been done correctly with `r round(sum(diag(table(Pred2,Testing$classe)))/nrow(Testing),3)` .  In this case to be specific, our accuracy is 1-misclassification rate.
